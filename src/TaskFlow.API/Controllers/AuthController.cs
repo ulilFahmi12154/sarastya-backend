@@ -20,7 +20,10 @@ public sealed class AuthController : ControllerBase
     private readonly IPasswordHasher<User> _passwordHasher;
     private readonly IConfiguration _configuration;
 
-    public AuthController(AppDbContext dbContext, IPasswordHasher<User> passwordHasher, IConfiguration configuration)
+    public AuthController(
+        AppDbContext dbContext,
+        IPasswordHasher<User> passwordHasher,
+        IConfiguration configuration)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
@@ -28,11 +31,17 @@ public sealed class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    public async Task<ActionResult<ApiResponse<AuthResponse>>> Register(RegisterRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Register(
+        RegisterRequest request,
+        CancellationToken cancellationToken)
     {
         var email = request.Email.Trim().ToLowerInvariant();
-        var exists = await _dbContext.Users.AnyAsync(u => u.Email == email, cancellationToken);
-        if (exists)
+
+        var existingUser = await _dbContext.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
+
+        if (existingUser is not null)
         {
             return Conflict(ApiResponse<AuthResponse>.Fail("Email already registered."));
         }
@@ -50,39 +59,70 @@ public sealed class AuthController : ControllerBase
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         var token = CreateJwtToken(user);
-        var response = new AuthResponse { UserId = user.Id, Email = user.Email, Token = token };
+
+        var response = new AuthResponse
+        {
+            UserId = user.Id,
+            Email = user.Email,
+            Token = token
+        };
 
         return Ok(ApiResponse<AuthResponse>.Ok(response, "Registration successful."));
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<ApiResponse<AuthResponse>>> Login(LoginRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ApiResponse<AuthResponse>>> Login(
+        LoginRequest request,
+        CancellationToken cancellationToken)
     {
         var email = request.Email.Trim().ToLowerInvariant();
-        var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
+
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
+
         if (user is null)
         {
             return Unauthorized(ApiResponse<AuthResponse>.Fail("Invalid email or password."));
         }
 
-        var result = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
+        var result = _passwordHasher.VerifyHashedPassword(
+            user,
+            user.PasswordHash,
+            request.Password);
+
         if (result == PasswordVerificationResult.Failed)
         {
             return Unauthorized(ApiResponse<AuthResponse>.Fail("Invalid email or password."));
         }
 
         var token = CreateJwtToken(user);
-        var response = new AuthResponse { UserId = user.Id, Email = user.Email, Token = token };
+
+        var response = new AuthResponse
+        {
+            UserId = user.Id,
+            Email = user.Email,
+            Token = token
+        };
 
         return Ok(ApiResponse<AuthResponse>.Ok(response, "Login successful."));
     }
 
     private string CreateJwtToken(User user)
     {
-        var jwt = _configuration.GetSection("Jwt");
-        var key = jwt["Key"] ?? throw new InvalidOperationException("JWT key is missing.");
-        var issuer = jwt["Issuer"];
-        var audience = jwt["Audience"];
+        var key = GetConfigurationValue("Jwt:Key", "JWT_KEY");
+
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new InvalidOperationException("JWT key is missing.");
+        }
+
+        if (key.Length < 32)
+        {
+            throw new InvalidOperationException("JWT key must be at least 32 characters long.");
+        }
+
+        var issuer = GetConfigurationValue("Jwt:Issuer", "JWT_ISSUER");
+        var audience = GetConfigurationValue("Jwt:Audience", "JWT_AUDIENCE");
 
         var claims = new List<Claim>
         {
@@ -103,5 +143,12 @@ public sealed class AuthController : ControllerBase
             signingCredentials: credentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private string? GetConfigurationValue(string sectionKey, string environmentKey)
+    {
+        return _configuration[sectionKey]
+            ?? _configuration[environmentKey]
+            ?? Environment.GetEnvironmentVariable(environmentKey);
     }
 }
