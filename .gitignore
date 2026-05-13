@@ -1,0 +1,49 @@
+# Build output
+bin/
+obj/
+artifacts/
+TestResults/
+coverage/
+*.nupkg
+*.snupkg
+
+# IDE and editor files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.env
+appsettings.Production.json
+appsettings.*.local.json
+*.secrets.json
+secrets/
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Docker and temporary files
+docker-compose.override.yml
+*.pid
+*.tmp
+*.temp
+*.cache
+
+# Database local dumps/backups
+*.bak
+*.dump
+*.sql.gz
