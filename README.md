@@ -277,3 +277,24 @@ Repository ini disiapkan untuk GitHub dengan:
 - `.env.example` sebagai template konfigurasi.
 - Docker Compose untuk API dan PostgreSQL.
 - README backend untuk setup dan presentasi.
+
+## Deployment
+
+Backend TaskFlow API telah dideploy menggunakan Railway.
+
+- Base API URL: `https://sarastya-backend-production.up.railway.app`
+- Swagger UI: `https://sarastya-backend-production.up.railway.app/swagger`
+
+Database production menggunakan PostgreSQL Railway.
+
+### Testing API
+
+1. Buka Swagger UI.
+2. Register user baru melalui `POST /api/auth/register`.
+3. Login melalui `POST /api/auth/login`.
+4. Copy token dari response login.
+5. Klik tombol **Authorize** di Swagger.
+6. Masukkan token dengan format:
+
+```text
+Bearer <token>
