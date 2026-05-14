@@ -47,7 +47,6 @@ public sealed class ProjectRepository : IProjectRepository
             command,
             (project, task) =>
             {
-                // Dapper returns one row per task; aggregate tasks into a single Project instance.
                 if (!lookup.TryGetValue(project.Id, out var existing))
                 {
                     existing = project;
@@ -55,7 +54,7 @@ public sealed class ProjectRepository : IProjectRepository
                     lookup.Add(existing.Id, existing);
                 }
 
-                if (task.Id != Guid.Empty)
+                if (task is not null && task.Id != Guid.Empty)
                 {
                     existing.Tasks.Add(task);
                 }
@@ -69,52 +68,56 @@ public sealed class ProjectRepository : IProjectRepository
 
     public async System.Threading.Tasks.Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        const string sql = """
+        const string projectSql = """
             SELECT
                 p.id AS "Id",
                 p.name AS "Name",
                 p.description AS "Description",
                 p.start_date AS "StartDate",
                 p.end_date AS "EndDate",
-                p.created_at AS "CreatedAt",
-                t.project_id AS "ProjectId",
+                p.created_at AS "CreatedAt"
+            FROM projects p
+            WHERE p.id = @Id;
+            """;
+
+        const string tasksSql = """
+            SELECT
                 t.id AS "Id",
+                t.project_id AS "ProjectId",
                 t.title AS "Title",
                 t.content AS "Content",
                 t.status AS "Status",
                 t.priority AS "Priority",
                 t.due_date AS "DueDate"
-            FROM projects p
-            LEFT JOIN tasks t ON t.project_id = p.id
-            WHERE p.id = @Id;
+            FROM tasks t
+            WHERE t.project_id = @Id
+            ORDER BY t.due_date DESC NULLS LAST;
             """;
 
         using var connection = _dapperContext.CreateConnection();
-        var lookup = new Dictionary<Guid, Project>();
-        var command = new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken);
 
-        await connection.QueryAsync<Project, TaskEntity, Project>(
-            command,
-            (project, task) =>
-            {
-                // Dapper returns one row per task; aggregate tasks into a single Project instance.
-                if (!lookup.TryGetValue(project.Id, out var existing))
-                {
-                    existing = project;
-                    existing.Tasks = new List<TaskEntity>();
-                    lookup.Add(existing.Id, existing);
-                }
+        var commandProject = new CommandDefinition(
+            projectSql,
+            new { Id = id },
+            cancellationToken: cancellationToken);
 
-                if (task.Id != Guid.Empty)
-                {
-                    existing.Tasks.Add(task);
-                }
+        var project = await connection.QueryFirstOrDefaultAsync<Project>(commandProject);
 
-                return existing;
-            },
-            splitOn: "ProjectId");
+        if (project is null)
+        {
+            return null;
+        }
 
-        return lookup.Values.FirstOrDefault();
+        var commandTasks = new CommandDefinition(
+            tasksSql,
+            new { Id = id },
+            cancellationToken: cancellationToken);
+
+        var tasks = await connection.QueryAsync<TaskEntity>(commandTasks);
+
+        project.Tasks = tasks.ToList();
+
+        return project;
     }
 
     public async System.Threading.Tasks.Task<Guid> CreateAsync(Project project, CancellationToken cancellationToken = default)

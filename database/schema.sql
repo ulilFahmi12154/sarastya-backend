@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS projects (
     id uuid PRIMARY KEY,
     name varchar(200) NOT NULL,
     description varchar(1000),
-    start_date timestamp without time zone NOT NULL,
-    end_date timestamp without time zone,
+    start_date timestamptz NOT NULL,
+    end_date timestamptz,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     content varchar(2000),
     status varchar(20) NOT NULL DEFAULT 'Todo',
     priority integer NOT NULL DEFAULT 0,
-    due_date timestamp without time zone,
+    due_date timestamptz,
     CONSTRAINT ck_tasks_status CHECK (status IN ('Todo', 'Doing', 'Done')),
     CONSTRAINT ck_tasks_priority CHECK (priority >= 0)
 );
