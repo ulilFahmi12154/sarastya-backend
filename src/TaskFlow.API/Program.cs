@@ -20,11 +20,28 @@ using TaskFlow.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
+const string CorsPolicy = "TaskFlowCors";
+
 builder.Host.UseSerilog((context, services, configuration) =>
 {
     configuration
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services);
+});
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(CorsPolicy, policy =>
+    {
+        policy
+            .WithOrigins(
+                "http://localhost:5173",
+                "http://localhost:3000",
+                "https://sarastya-frontend.vercel.app"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
 });
 
 builder.Services.AddControllers();
@@ -48,6 +65,7 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
         return new BadRequestObjectResult(payload);
     };
 });
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -86,12 +104,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         var jwt = builder.Configuration.GetSection("Jwt");
-        var jwtKey = jwt["Key"] ?? throw new InvalidOperationException("JWT key is missing.");
+        var jwtKey = jwt["Key"]
+            ?? builder.Configuration["JWT_KEY"]
+            ?? throw new InvalidOperationException("JWT key is missing.");
+
+        var jwtIssuer = jwt["Issuer"]
+            ?? builder.Configuration["JWT_ISSUER"];
+
+        var jwtAudience = jwt["Audience"]
+            ?? builder.Configuration["JWT_AUDIENCE"];
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidIssuer = jwt["Issuer"],
-            ValidAudience = jwt["Audience"],
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ValidateIssuer = true,
             ValidateAudience = true,
@@ -115,6 +141,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors(CorsPolicy);
 
 app.UseAuthentication();
 app.UseAuthorization();
