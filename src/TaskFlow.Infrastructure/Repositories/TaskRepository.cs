@@ -17,7 +17,7 @@ public sealed class TaskRepository : ITaskRepository
         _dapperContext = dapperContext;
     }
 
-    public async System.Threading.Tasks.Task<IReadOnlyList<TaskEntity>> GetAllAsync(Guid? projectId, CancellationToken cancellationToken = default)
+    public async System.Threading.Tasks.Task<IReadOnlyList<TaskEntity>> GetAllAsync(Guid userId, Guid? projectId, CancellationToken cancellationToken = default)
     {
         const string sql = """
             SELECT
@@ -29,16 +29,18 @@ public sealed class TaskRepository : ITaskRepository
                 t.priority AS "Priority",
                 t.due_date AS "DueDate"
             FROM tasks t
-            WHERE (@ProjectId IS NULL OR t.project_id = @ProjectId);
+            JOIN projects p ON p.id = t.project_id
+            WHERE p.user_id = @UserId
+                AND (@ProjectId IS NULL OR t.project_id = @ProjectId);
             """;
 
         using var connection = _dapperContext.CreateConnection();
-        var command = new CommandDefinition(sql, new { ProjectId = projectId }, cancellationToken: cancellationToken);
+        var command = new CommandDefinition(sql, new { UserId = userId, ProjectId = projectId }, cancellationToken: cancellationToken);
         var tasks = await connection.QueryAsync<TaskEntity>(command);
         return tasks.ToList();
     }
 
-    public async System.Threading.Tasks.Task<TaskEntity?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    public async System.Threading.Tasks.Task<TaskEntity?> GetByIdAsync(Guid id, Guid userId, CancellationToken cancellationToken = default)
     {
         const string sql = """
             SELECT
@@ -50,11 +52,13 @@ public sealed class TaskRepository : ITaskRepository
                 t.priority AS "Priority",
                 t.due_date AS "DueDate"
             FROM tasks t
-            WHERE t.id = @Id;
+            JOIN projects p ON p.id = t.project_id
+            WHERE t.id = @Id
+                AND p.user_id = @UserId;
             """;
 
         using var connection = _dapperContext.CreateConnection();
-        var command = new CommandDefinition(sql, new { Id = id }, cancellationToken: cancellationToken);
+        var command = new CommandDefinition(sql, new { Id = id, UserId = userId }, cancellationToken: cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<TaskEntity>(command);
     }
 

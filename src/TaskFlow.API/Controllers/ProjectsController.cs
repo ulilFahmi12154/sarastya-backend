@@ -1,13 +1,13 @@
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Security.Claims;
 using TaskFlow.API.Contracts;
 using TaskFlow.Application.DTOs.Projects;
 using TaskFlow.Application.DTOs.Tasks;
 using TaskFlow.Core.Domain.Entities;
 using TaskFlow.Core.Interfaces;
-using TaskFlow.Infrastructure.Persistence;
 using TaskEntity = TaskFlow.Core.Domain.Entities.Task;
 
 namespace TaskFlow.API.Controllers;
@@ -18,18 +18,21 @@ namespace TaskFlow.API.Controllers;
 public sealed class ProjectsController : ControllerBase
 {
     private readonly IProjectRepository _projectRepository;
-    private readonly AppDbContext _dbContext;
 
-    public ProjectsController(IProjectRepository projectRepository, AppDbContext dbContext)
+    public ProjectsController(IProjectRepository projectRepository)
     {
         _projectRepository = projectRepository;
-        _dbContext = dbContext;
     }
 
     [HttpGet]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ProjectResponse>>>> GetAll(CancellationToken cancellationToken)
     {
-        var projects = await _projectRepository.GetAllAsync(cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<IReadOnlyList<ProjectResponse>>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var projects = await _projectRepository.GetAllAsync(userId, cancellationToken);
         var response = projects.Select(Map).ToList();
         return Ok(ApiResponse<IReadOnlyList<ProjectResponse>>.Ok(response, "Projects retrieved."));
     }
@@ -37,7 +40,12 @@ public sealed class ProjectsController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
-        var project = await _projectRepository.GetByIdAsync(id, cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<ProjectResponse>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var project = await _projectRepository.GetByIdAsync(id, userId, cancellationToken);
         if (project is null)
         {
             return NotFound(ApiResponse<ProjectResponse>.Fail("Project not found."));
@@ -49,9 +57,15 @@ public sealed class ProjectsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Create(ProjectCreateRequest request, CancellationToken cancellationToken)
     {
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<ProjectResponse>.Fail("User ID claim is missing or invalid."));
+        }
+
         var project = new Project
         {
             Id = Guid.NewGuid(),
+            UserId = userId,
             Name = request.Name,
             Description = request.Description,
             StartDate = request.StartDate,
@@ -68,7 +82,12 @@ public sealed class ProjectsController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Update(Guid id, ProjectUpdateRequest request, CancellationToken cancellationToken)
     {
-        var project = await _dbContext.Projects.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<ProjectResponse>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var project = await _projectRepository.GetByIdAsync(id, userId, cancellationToken);
         if (project is null)
         {
             return NotFound(ApiResponse<ProjectResponse>.Fail("Project not found."));
@@ -87,7 +106,12 @@ public sealed class ProjectsController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<ActionResult<ApiResponse<object?>>> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var project = await _dbContext.Projects.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<object?>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var project = await _projectRepository.GetByIdAsync(id, userId, cancellationToken);
         if (project is null)
         {
             return NotFound(ApiResponse<object?>.Fail("Project not found."));
@@ -124,5 +148,13 @@ public sealed class ProjectsController : ControllerBase
             Priority = task.Priority,
             DueDate = task.DueDate
         };
+    }
+
+    private bool TryGetCurrentUserId(out Guid userId)
+    {
+        var userIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return Guid.TryParse(userIdClaim, out userId);
     }
 }

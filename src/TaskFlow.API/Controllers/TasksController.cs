@@ -1,11 +1,11 @@
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Security.Claims;
 using TaskFlow.API.Contracts;
 using TaskFlow.Application.DTOs.Tasks;
 using TaskFlow.Core.Interfaces;
-using TaskFlow.Infrastructure.Persistence;
 using TaskEntity = TaskFlow.Core.Domain.Entities.Task;
 
 namespace TaskFlow.API.Controllers;
@@ -16,18 +16,23 @@ namespace TaskFlow.API.Controllers;
 public sealed class TasksController : ControllerBase
 {
     private readonly ITaskRepository _taskRepository;
-    private readonly AppDbContext _dbContext;
+    private readonly IProjectRepository _projectRepository;
 
-    public TasksController(ITaskRepository taskRepository, AppDbContext dbContext)
+    public TasksController(ITaskRepository taskRepository, IProjectRepository projectRepository)
     {
         _taskRepository = taskRepository;
-        _dbContext = dbContext;
+        _projectRepository = projectRepository;
     }
 
     [HttpGet]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<TaskResponse>>>> GetAll([FromQuery] Guid? projectId, CancellationToken cancellationToken)
     {
-        var tasks = await _taskRepository.GetAllAsync(projectId, cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<IReadOnlyList<TaskResponse>>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var tasks = await _taskRepository.GetAllAsync(userId, projectId, cancellationToken);
         var response = tasks.Select(Map).ToList();
         return Ok(ApiResponse<IReadOnlyList<TaskResponse>>.Ok(response, "Tasks retrieved."));
     }
@@ -35,7 +40,12 @@ public sealed class TasksController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ApiResponse<TaskResponse>>> GetById(Guid id, CancellationToken cancellationToken)
     {
-        var task = await _taskRepository.GetByIdAsync(id, cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<TaskResponse>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var task = await _taskRepository.GetByIdAsync(id, userId, cancellationToken);
         if (task is null)
         {
             return NotFound(ApiResponse<TaskResponse>.Fail("Task not found."));
@@ -47,8 +57,13 @@ public sealed class TasksController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ApiResponse<TaskResponse>>> Create(TaskCreateRequest request, CancellationToken cancellationToken)
     {
-        var projectExists = await _dbContext.Projects.AnyAsync(p => p.Id == request.ProjectId, cancellationToken);
-        if (!projectExists)
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<TaskResponse>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var project = await _projectRepository.GetByIdAsync(request.ProjectId, userId, cancellationToken);
+        if (project is null)
         {
             return NotFound(ApiResponse<TaskResponse>.Fail("Project not found."));
         }
@@ -72,14 +87,19 @@ public sealed class TasksController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ApiResponse<TaskResponse>>> Update(Guid id, TaskUpdateRequest request, CancellationToken cancellationToken)
     {
-        var task = await _dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<TaskResponse>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var task = await _taskRepository.GetByIdAsync(id, userId, cancellationToken);
         if (task is null)
         {
             return NotFound(ApiResponse<TaskResponse>.Fail("Task not found."));
         }
 
-        var projectExists = await _dbContext.Projects.AnyAsync(p => p.Id == request.ProjectId, cancellationToken);
-        if (!projectExists)
+        var project = await _projectRepository.GetByIdAsync(request.ProjectId, userId, cancellationToken);
+        if (project is null)
         {
             return NotFound(ApiResponse<TaskResponse>.Fail("Project not found."));
         }
@@ -99,7 +119,12 @@ public sealed class TasksController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<ActionResult<ApiResponse<object?>>> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var task = await _dbContext.Tasks.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+        if (!TryGetCurrentUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<object?>.Fail("User ID claim is missing or invalid."));
+        }
+
+        var task = await _taskRepository.GetByIdAsync(id, userId, cancellationToken);
         if (task is null)
         {
             return NotFound(ApiResponse<object?>.Fail("Task not found."));
@@ -122,5 +147,13 @@ public sealed class TasksController : ControllerBase
             Priority = task.Priority,
             DueDate = task.DueDate
         };
+    }
+
+    private bool TryGetCurrentUserId(out Guid userId)
+    {
+        var userIdClaim = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return Guid.TryParse(userIdClaim, out userId);
     }
 }

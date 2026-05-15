@@ -7,12 +7,15 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS projects (
     id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name varchar(200) NOT NULL,
     description varchar(1000),
     start_date timestamptz NOT NULL,
     end_date timestamptz,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS ix_projects_user_id ON projects(user_id);
 
 CREATE TABLE IF NOT EXISTS tasks (
     id uuid PRIMARY KEY,

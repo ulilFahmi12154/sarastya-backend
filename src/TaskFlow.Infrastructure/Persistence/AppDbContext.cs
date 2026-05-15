@@ -25,6 +25,9 @@ public sealed class AppDbContext : DbContext
             entity.Property(p => p.Id)
                 .HasColumnName("id");
 
+            entity.Property(p => p.UserId)
+                .HasColumnName("user_id");
+
             entity.Property(p => p.Name)
                 .HasColumnName("name")
                 .HasMaxLength(200)
@@ -46,6 +49,11 @@ public sealed class AppDbContext : DbContext
                 .HasColumnName("created_at")
                 .HasColumnType("timestamp with time zone")
                 .HasDefaultValueSql("now()");
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasMany(p => p.Tasks)
                 .WithOne(t => t.Project)
